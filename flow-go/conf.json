@@ -1,0 +1,14 @@
+{
+    "admin": {
+        "address": "ADMIN_ACCOUNT_ADDRESS",
+        "privateKey": "ADMIN_ACCOUNT_PRIVATEKEY"
+    },
+    "account1": {
+        "address": "ACCOUNT1_ADDRESS",
+        "privateKey": "ACCOUNT1_PRIVATEKEY"
+    },
+    "account2": {
+        "address": "ACCOUNT2_ADDRESS",
+        "privateKey": "ACCOUNT2_PRIVATEKEY"
+    }
+}
