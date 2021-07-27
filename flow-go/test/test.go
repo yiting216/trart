@@ -35,304 +35,35 @@ type NFTData struct {
 const (
 	_confPath = "./conf.json"
 
+	_adminContractPath      = "./../contracts/admin/SimpleAdmin.cdc"
+	_nftContractPath        = "./../contracts/nft/TRART.cdc"
+	_setupAccountCdcPath    = "./../transactions/setup_account.cdc"
+	_mintNFTCdcPath         = "./../transactions/mint_nft.cdc"
+	_transferNFTCdcPath     = "./../transactions/transfer_nft.cdc"
+	_queryAccountNFTCdcPath = "./../scripts/read_collection_ids.cdc"
+	_queryMintedNFTCdcPath  = "./../scripts/read_minted_ids.cdc"
+
 	_flowNetwork = "access.devnet.nodes.onflow.org:9000" //testnet
 )
 
 var (
 	_conf confData
 
+	_adminContract         string
+	_nftContract           string
+	_setupAccountScript    string
+	_mintNFTScript         string
+	_transferNFTScript     string
+	_queryAccountNFTScript string
+	_queryMintedNFTScript  string
+
 	_flowClient *client.Client
-)
-
-const (
-	_adminContract = `
-	pub contract SimpleAdmin {
-		pub resource Admin {
-			pub fun check(): Bool {
-				return true
-			}
-		}
-
-		init() {
-			let admin <- create Admin()
-			self.account.save(<-admin, to: /storage/simpleAdmin)
-			self.account.link<&Admin>(/private/simpleAdminCapability, target: /storage/simpleAdmin)
-		}
-	}
-	`
-
-	_nftContract = `
-	import SimpleAdmin from 0x%s
-	import NonFungibleToken from 0x631e88ae7f1d7c20
-
-	pub contract TRART: NonFungibleToken {
-	
-		pub var maxSupply: UInt64
-		pub var totalSupply: UInt64
-		pub var mintedNFTs: {UInt64 : {String : String}}
-	
-		pub event ContractInitialized()
-		pub event Withdraw(id: UInt64, from: Address?)
-		pub event Deposit(id: UInt64, to: Address?)
-
-		pub resource NFT: NonFungibleToken.INFT {
-			pub let id: UInt64
-	
-			pub var metadata: {String: String}
-	
-			init(initID: UInt64, initMetadata: {String: String}) {
-				self.id = initID
-				self.metadata = initMetadata
-			}
-		}
-	
-		pub resource Collection: NonFungibleToken.Provider, NonFungibleToken.Receiver, NonFungibleToken.CollectionPublic {
-			pub var ownedNFTs: @{UInt64: NonFungibleToken.NFT}
-
-			init () {
-				self.ownedNFTs <- {}
-			}
-				
-			pub fun withdraw(withdrawID: UInt64): @NonFungibleToken.NFT {
-				pre {
-					false : "Please call withdrawWithAdminCheck instead of withdraw"
-				}
-
-				let token <- self.ownedNFTs.remove(key: withdrawID) ?? panic("missing NFT")
-	
-				emit Withdraw(id: token.id, from: self.owner?.address)
-	
-				return <-token
-			}
-
-			pub fun withdrawWithAdminCheck(withdrawID: UInt64, adminRef: &SimpleAdmin.Admin): @NonFungibleToken.NFT {
-				pre {
-					adminRef.check(): "SimpleAdmin capability not valid"
-				}
-
-				let token <- self.ownedNFTs.remove(key: withdrawID) ?? panic("Missing NFT")
-	
-				emit Withdraw(id: token.id, from: self.owner?.address)
-	
-				return <-token
-			}
-
-			pub fun deposit(token: @NonFungibleToken.NFT) {
-				let token <- token as! @TRART.NFT
-	
-				let id: UInt64 = token.id
-	
-				let oldToken <- self.ownedNFTs[id] <- token
-	 
-				emit Deposit(id: id, to: self.owner?.address)
-	
-				destroy oldToken
-			}
-
-			pub fun getIDs(): [UInt64] {
-				return self.ownedNFTs.keys
-			}
-
-			pub fun borrowNFT(id: UInt64): &NonFungibleToken.NFT {
-				return &self.ownedNFTs[id] as &NonFungibleToken.NFT
-			}
-
-			destroy() {
-				destroy self.ownedNFTs
-			}
-		}
-	
-		pub fun createEmptyCollection(): @NonFungibleToken.Collection {
-			return <- create Collection()
-		}
-	
-		pub resource NFTMinter {
-	
-			pub fun mintNFT(id: UInt64, metadata: {String : String}, recipient: &AnyResource{NonFungibleToken.CollectionPublic}) {
-				if TRART.totalSupply >= TRART.maxSupply {
-					panic("Can not mint NFT any more")
-				}
-
-				if id <= 0 as UInt64 {
-					panic("Can not mint invalid NFT id")
-				}
-
-				if TRART.mintedNFTs[id] != nil {
-					panic("Can not mint existing NFT id")
-				}
-	
-				var newNFT <- create NFT(initID: id, initMetadata: metadata)
-	
-				recipient.deposit(token: <-newNFT)
-	
-				TRART.totalSupply = TRART.totalSupply + 1 as UInt64
-				TRART.mintedNFTs[id] = metadata
-
-				log("Mint NFT completed")
-			}
-
-		}
-	
-		init() {
-			self.mintedNFTs = {}
-			self.maxSupply = 1000
-			self.totalSupply = 0
-
-			let collection <- self.createEmptyCollection()
-			self.account.save(<-collection, to: /storage/TRARTNFTCollection)
-	
-			self.account.link<&{NonFungibleToken.CollectionPublic}>(
-				/public/TRARTNFTCollection,
-				target: /storage/TRARTNFTCollection
-			)
-
-			let minter <- create NFTMinter()
-			self.account.save(<-minter, to: /storage/TRARTNFTMinter)
-
-			
-			emit ContractInitialized()
-		}
-
-	}
-	`
-
-	_setupAccountScript = `
-	import TRART from 0x%s
-	import NonFungibleToken from 0x631e88ae7f1d7c20
-
-	transaction {
-		prepare(acct: AuthAccount) {
-			let collection <- TRART.createEmptyCollection()
-	
-			acct.save(<-collection, to: /storage/TRARTNFTCollection)
-
-			acct.link<&{NonFungibleToken.CollectionPublic}>(
-				/public/TRARTNFTCollection,
-				target: /storage/TRARTNFTCollection
-			)
-	
-			log("Setup account completed")
-		}
-	}
-	`
-
-	_mintNFTScript = `
-	import TRART from 0x%s
-	import NonFungibleToken from 0x631e88ae7f1d7c20
-
-	transaction(mintID: UInt64, data: {String : String}) {
-		let receiverRef: &AnyResource{NonFungibleToken.CollectionPublic}
-
-		let minterRef: &TRART.NFTMinter
-
-		prepare(minter: AuthAccount, receiver: AuthAccount) {
-
-			self.minterRef = minter.borrow<&TRART.NFTMinter>(from: /storage/TRARTNFTMinter)
-				?? panic("Could not borrow minter reference")
-
-			var receiverRef = receiver.getCapability<&{NonFungibleToken.CollectionPublic}>(/public/TRARTNFTCollection)
-				.borrow()
-				?? nil
-			if receiverRef == nil {
-				let collection <- TRART.createEmptyCollection()
-	
-				receiver.save(<-collection, to: /storage/TRARTNFTCollection)
-	
-				receiver.link<&{NonFungibleToken.CollectionPublic}>(
-					/public/TRARTNFTCollection,
-					target: /storage/TRARTNFTCollection
-				)
-	
-				receiverRef = receiver.getCapability<&{NonFungibleToken.CollectionPublic}>(/public/TRARTNFTCollection)
-					.borrow()
-					?? panic("Could not borrow receiver reference")
-			}
-	
-			self.receiverRef = receiverRef ?? panic("Could not borrow receiver reference")
-		}
-
-		execute {
-			self.minterRef.mintNFT(id: mintID, metadata: data, recipient: self.receiverRef)
-		}
-	}
-	`
-
-	_transferNFTScript = `
-	import TRART from 0x%s
-	import SimpleAdmin from 0x%s
-	import NonFungibleToken from 0x631e88ae7f1d7c20
-
-	transaction(transferID: UInt64) {
-		let receiverRef: &AnyResource{NonFungibleToken.CollectionPublic}
-
-		let transferToken: @NonFungibleToken.NFT
-
-		prepare(admin: AuthAccount, sender: AuthAccount, receiver: AuthAccount) {
-
-			let adminRef = admin.borrow<&SimpleAdmin.Admin>(from: /storage/simpleAdmin)
-            	?? panic("Could not borrow reference to the admin resource")
-
-			let collectionRef = sender.borrow<&TRART.Collection>(from: /storage/TRARTNFTCollection)
-				?? panic("Could not borrow a reference to the owner's collection")
-
-			var receiverRef = receiver.getCapability<&{NonFungibleToken.CollectionPublic}>(/public/TRARTNFTCollection)
-				.borrow() 
-				?? nil
-				
-			if receiverRef == nil {
-				let collection <- TRART.createEmptyCollection()
-
-				receiver.save(<-collection, to: /storage/TRARTNFTCollection)
-
-				receiver.link<&{NonFungibleToken.CollectionPublic}>(
-					/public/TRARTNFTCollection,
-					target: /storage/TRARTNFTCollection
-				)
-
-				receiverRef = receiver.getCapability<&{NonFungibleToken.CollectionPublic}>(/public/TRARTNFTCollection)
-					.borrow()
-					?? panic("Could not borrow receiver reference")
-
-				log("Setup account completed")
-			}
-
-			self.receiverRef = receiverRef ?? panic("Could not borrow receiver reference")
-
-			self.transferToken <- collectionRef.withdrawWithAdminCheck(withdrawID: transferID, adminRef: adminRef)
-			log("TransferToken NFT completed")
-		}
-
-		execute {
-			self.receiverRef.deposit(token: <-self.transferToken)
-		}
-	}
-	`
-
-	_queryAccountNFTScript = `
-	import NonFungibleToken from 0x631e88ae7f1d7c20
-
-	pub fun main() : [UInt64] {
-		let nftOwner = getAccount(0x%s)
-
-		var receiverRef = nftOwner.getCapability<&{NonFungibleToken.CollectionPublic}>(/public/TRARTNFTCollection)
-			.borrow() 
-			?? panic("Could not borrow the receiver reference")
-
-		return receiverRef.getIDs()
-	}
-	`
-
-	_queryMintedNFTScript = `
-	import TRART from 0x%s
-
-	pub fun main() : [UInt64] {
-		return TRART.mintedNFTs.keys
-	}
-	`
 )
 
 func init() {
 	_conf = readConfig()
+
+	readCadenceFile()
 
 	_flowClient = newFlowClient()
 }
@@ -927,4 +658,68 @@ func readConfig() confData {
 	}
 
 	return conf
+}
+
+func readCadenceFile() {
+	//contracts
+	{
+		content := ReadFile(_adminContractPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _adminContractPath))
+		}
+
+		_adminContract = content
+	}
+	{
+		content := ReadFile(_nftContractPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _nftContractPath))
+		}
+
+		_nftContract = content
+	}
+
+	//transactions
+	{
+		content := ReadFile(_setupAccountCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _setupAccountCdcPath))
+		}
+
+		_setupAccountScript = content
+	}
+	{
+		content := ReadFile(_mintNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _mintNFTCdcPath))
+		}
+
+		_mintNFTScript = content
+	}
+	{
+		content := ReadFile(_transferNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _transferNFTCdcPath))
+		}
+
+		_transferNFTScript = content
+	}
+
+	//scripts
+	{
+		content := ReadFile(_queryAccountNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _queryAccountNFTCdcPath))
+		}
+
+		_queryAccountNFTScript = content
+	}
+	{
+		content := ReadFile(_queryMintedNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _queryMintedNFTCdcPath))
+		}
+
+		_queryMintedNFTScript = content
+	}
 }
