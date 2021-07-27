@@ -1,0 +1,14 @@
+{
+    "admin": {
+        "address": "a3d1f329fafe95d6",
+        "privateKey": "0887b2de85609ee055ec5a13797244c4b90826413855d1383dd68c18e6cd2d2b"
+    },
+    "account1": {
+        "address": "47b64af4eb049509",
+        "privateKey": "2555859e9d478bbaacbf73f2154a5685bc56a35f76a90fd668ffacd48b94045e"
+    },
+    "account2": {
+        "address": "51e22fc772009f68",
+        "privateKey": "43b5da9950be7c840337f1d2bd01f50bbf64067421a6c544b3c0b94cf6bcd14a"
+    }
+}
