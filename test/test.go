@@ -40,6 +40,7 @@ var (
 	_setupAccountScript    string
 	_mintNFTScript         string
 	_transferNFTScript     string
+	_usePacketScript       string
 	_queryAccountNFTScript string
 	_queryMintedNFTScript  string
 
@@ -301,7 +302,7 @@ func transferNFT(script string, senderAccount, receiverAccount account, id uint)
 		}
 
 		if err := tx.SignPayload(senderAcctAddr, senderAcctKey.Index, senderSigner); err != nil {
-			log.Println("mintNFT --- failed to sign transaction pay load")
+			log.Println("transferNFT --- failed to sign transaction pay load")
 			resErr = err
 			break
 		}
@@ -326,6 +327,124 @@ func transferNFT(script string, senderAccount, receiverAccount account, id uint)
 
 		txID = tx.ID()
 		fmt.Println("transferNFT --- send transaction txID: ", txID)
+		break
+	}
+
+	return resErr, txID
+}
+
+func usePacket(script string, receiverAccount account, id uint, mintNFTs []NFTData) (error, flow.Identifier) {
+	var (
+		resErr error
+		txID   flow.Identifier
+	)
+
+	fmt.Println(script)
+
+	for {
+		ctx := context.Background()
+		flowClient := _flowClient
+
+		block, err := flowClient.GetLatestBlock(ctx, true)
+		if err != nil {
+			log.Println("usePacket --- failed to get lastest block")
+			resErr = err
+			break
+		}
+		latestBlockID := block.ID
+
+		serviceAcctAddr, serviceAcctKey, serviceSigner := getAccount(flowClient, _conf.Admin.Address, _conf.Admin.PrivKey)
+		receiverAcctAddr, receiverAcctKey, receiverSigner := getAccount(flowClient, receiverAccount.Address, receiverAccount.PrivKey)
+
+		tx := flow.NewTransaction().
+			SetScript([]byte(script)).
+			SetGasLimit(100).
+			SetProposalKey(serviceAcctAddr, serviceAcctKey.Index, serviceAcctKey.SequenceNumber).
+			SetReferenceBlockID(latestBlockID).
+			SetPayer(serviceAcctAddr).
+			AddAuthorizer(serviceAcctAddr).
+			AddAuthorizer(receiverAcctAddr)
+
+		nftID := cadence.NewUInt64(uint64(id))
+		if err := tx.AddArgument(nftID); err != nil {
+			log.Println("usePacket --- failed to AddArgument nftID: ", nftID)
+			resErr = err
+			break
+		}
+
+		ids := make([]cadence.Value, 0)
+		datas := make([]cadence.KeyValuePair, 0)
+		for _, nft := range mintNFTs {
+			//ID
+			id := cadence.NewUInt64(uint64(nft.ID))
+			ids = append(ids, id)
+
+			//Metadata
+			m := make([]cadence.KeyValuePair, 0)
+			for k, v := range nft.Metadata {
+				key, err := cadence.NewValue(k)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+
+				value, err := cadence.NewValue(v)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+
+				m = append(m, cadence.KeyValuePair{
+					Key:   key,
+					Value: value,
+				})
+			}
+
+			if len(m) > 0 {
+				key := id
+				value := cadence.NewDictionary(m)
+
+				datas = append(datas, cadence.KeyValuePair{
+					Key:   key,
+					Value: value,
+				})
+			}
+		}
+
+		nftIDs := cadence.NewArray(ids)
+		if err := tx.AddArgument(nftIDs); err != nil {
+			log.Println("usePacket --- failed to AddArgument nftIDs: ", nftIDs)
+			resErr = err
+			break
+		}
+
+		nftDatas := cadence.NewDictionary(datas)
+		if err := tx.AddArgument(nftDatas); err != nil {
+			log.Println("usePacket --- failed to AddArgument nftDatas: ", nftDatas)
+			resErr = err
+			break
+		}
+
+		if err := tx.SignPayload(receiverAcctAddr, receiverAcctKey.Index, receiverSigner); err != nil {
+			log.Println("usePacket --- failed to sign transaction envelope")
+			resErr = err
+			break
+		}
+
+		if err := tx.SignEnvelope(serviceAcctAddr, serviceAcctKey.Index, serviceSigner); err != nil {
+			log.Println("usePacket --- failed to sign transaction envelope")
+			resErr = err
+			break
+		}
+
+		if err = flowClient.SendTransaction(ctx, *tx); err != nil {
+			log.Println("usePacket --- failed to send transaction to network")
+			resErr = err
+			break
+		}
+
+		txID = tx.ID()
+		fmt.Println("usePacket --- send transaction txID: ", txID)
 		break
 	}
 
@@ -533,6 +652,14 @@ func readCadenceFile() {
 		}
 
 		_transferNFTScript = content
+	}
+	{
+		content := ReadFile(_usePacketCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _usePacketCdcPath))
+		}
+
+		_usePacketScript = content
 	}
 
 	//scripts

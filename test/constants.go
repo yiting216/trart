@@ -9,6 +9,7 @@ const (
 	_setupAccountCdcPath    = _projectRootPath + "/transactions/setup_account.cdc"
 	_mintNFTCdcPath         = _projectRootPath + "/transactions/mint_nft.cdc"
 	_transferNFTCdcPath     = _projectRootPath + "/transactions/transfer_nft.cdc"
+	_usePacketCdcPath       = _projectRootPath + "/transactions/use_packet.cdc"
 	_queryAccountNFTCdcPath = _projectRootPath + "/scripts/read_collection_ids.cdc"
 	_queryMintedNFTCdcPath  = _projectRootPath + "/scripts/read_minted_ids.cdc"
 
