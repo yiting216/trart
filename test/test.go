@@ -35,14 +35,16 @@ type NFTData struct {
 var (
 	_conf confData
 
-	_adminContract         string
-	_nftContract           string
-	_setupAccountScript    string
-	_mintNFTScript         string
-	_transferNFTScript     string
-	_usePacketScript       string
-	_queryAccountNFTScript string
-	_queryMintedNFTScript  string
+	_adminContract              string
+	_nftContract                string
+	_setupAccountScript         string
+	_mintNFTScript              string
+	_transferNFTScript          string
+	_usePacketScript            string
+	_setNonExclusiveNFTScript   string
+	_queryAccountNFTScript      string
+	_queryMintedNFTScript       string
+	_queryNonExclusiveNFTScript string
 
 	_flowClient *client.Client
 )
@@ -451,6 +453,64 @@ func usePacket(script string, receiverAccount account, id uint, mintNFTs []NFTDa
 	return resErr, txID
 }
 
+func setNonExclisiveNFT(script string, id uint) (error, flow.Identifier) {
+	var (
+		resErr error
+		txID   flow.Identifier
+	)
+
+	fmt.Println(script)
+
+	for {
+		ctx := context.Background()
+		flowClient := _flowClient
+
+		block, err := flowClient.GetLatestBlock(ctx, true)
+		if err != nil {
+			log.Println("setNonExclisiveNFT --- failed to get lastest block")
+			resErr = err
+			break
+		}
+		latestBlockID := block.ID
+
+		serviceAcctAddr, serviceAcctKey, serviceSigner := getAccount(flowClient, _conf.Admin.Address, _conf.Admin.PrivKey)
+
+		tx := flow.NewTransaction().
+			SetScript([]byte(script)).
+			SetGasLimit(100).
+			SetProposalKey(serviceAcctAddr, serviceAcctKey.Index, serviceAcctKey.SequenceNumber).
+			SetReferenceBlockID(latestBlockID).
+			SetPayer(serviceAcctAddr).
+			AddAuthorizer(serviceAcctAddr)
+
+		nftID := cadence.NewUInt64(uint64(id))
+
+		if err := tx.AddArgument(nftID); err != nil {
+			log.Println("setNonExclisiveNFT --- failed to AddArgument nftID: ", nftID)
+			resErr = err
+			break
+		}
+
+		if err := tx.SignEnvelope(serviceAcctAddr, serviceAcctKey.Index, serviceSigner); err != nil {
+			log.Println("setNonExclisiveNFT --- failed to sign transaction envelope")
+			resErr = err
+			break
+		}
+
+		if err = flowClient.SendTransaction(ctx, *tx); err != nil {
+			log.Println("setNonExclisiveNFT --- failed to send transaction to network")
+			resErr = err
+			break
+		}
+
+		txID = tx.ID()
+		fmt.Println("setNonExclisiveNFT --- send transaction txID: ", txID)
+		break
+	}
+
+	return resErr, txID
+}
+
 func queryOwnedNFT(script string) (error, cadence.Value) {
 	var (
 		resErr error
@@ -492,6 +552,32 @@ func queryMintedNFT(script string) (error, cadence.Value) {
 		value, err := flowClient.ExecuteScriptAtLatestBlock(ctx, []byte(script), nil)
 		if err != nil {
 			log.Println("queryMintedNFT --- failed to execute script")
+			resErr = err
+			break
+		}
+
+		v = value
+		break
+	}
+
+	return resErr, v
+}
+
+func queryNonExclusiveNFT(script string) (error, cadence.Value) {
+	var (
+		resErr error
+		v      cadence.Value
+	)
+
+	fmt.Println(script)
+
+	for {
+		ctx := context.Background()
+		flowClient := _flowClient
+
+		value, err := flowClient.ExecuteScriptAtLatestBlock(ctx, []byte(script), nil)
+		if err != nil {
+			log.Println("queryNonExclusiveNFT --- failed to execute script")
 			resErr = err
 			break
 		}
@@ -661,6 +747,14 @@ func readCadenceFile() {
 
 		_usePacketScript = content
 	}
+	{
+		content := ReadFile(_setNonExclusiveNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _setNonExclusiveNFTCdcPath))
+		}
+
+		_setNonExclusiveNFTScript = content
+	}
 
 	//scripts
 	{
@@ -679,4 +773,13 @@ func readCadenceFile() {
 
 		_queryMintedNFTScript = content
 	}
+	{
+		content := ReadFile(_queryNonExclusiveNFTCdcPath)
+		if len(content) == 0 {
+			panic(fmt.Sprintf("File content is empty %s", _queryNonExclusiveNFTCdcPath))
+		}
+
+		_queryNonExclusiveNFTScript = content
+	}
+
 }
