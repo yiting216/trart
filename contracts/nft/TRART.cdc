@@ -6,10 +6,12 @@ pub contract TRART: NonFungibleToken {
 	pub var maxSupply: UInt64
 	pub var totalSupply: UInt64
 	pub var mintedNFTs: {UInt64 : {String : String}}
+	pub var nonExclusiveNFTs: {UInt64 : Bool}
 
 	pub event ContractInitialized()
 	pub event Withdraw(id: UInt64, from: Address?)
 	pub event Deposit(id: UInt64, to: Address?)
+	pub event NFTNonExclusive(id: UInt64)
 
 	pub resource NFT: NonFungibleToken.INFT {
 		pub let id: UInt64
@@ -31,7 +33,7 @@ pub contract TRART: NonFungibleToken {
 			
 		pub fun withdraw(withdrawID: UInt64): @NonFungibleToken.NFT {
 			pre {
-				false : "Please call withdrawWithAdminCheck instead of withdraw"
+				TRART.nonExclusiveNFTs[withdrawID] != nil && TRART.nonExclusiveNFTs[withdrawID] == true : "This NFT is exclusive"
 			}
 
 			let token <- self.ownedNFTs.remove(key: withdrawID) ?? panic("missing NFT")
@@ -82,6 +84,18 @@ pub contract TRART: NonFungibleToken {
 		return <- create Collection()
 	}
 
+	pub fun setNonExclusive(id: UInt64, adminRef: &SimpleAdmin.Admin) {
+		pre {
+			adminRef.check(): "SimpleAdmin capability not valid"
+
+			self.nonExclusiveNFTs[id] == nil : "NFT is already nonExclusive"
+		}
+
+		self.nonExclusiveNFTs[id] = true
+
+		emit NFTNonExclusive(id: id)
+	}
+
 	pub resource NFTMinter {
 
 		pub fun mintNFT(id: UInt64, metadata: {String : String}, recipient: &AnyResource{NonFungibleToken.CollectionPublic}) {
@@ -111,6 +125,7 @@ pub contract TRART: NonFungibleToken {
 
 	init() {
 		self.mintedNFTs = {}
+		self.nonExclusiveNFTs = {}
 		self.maxSupply = 1000
 		self.totalSupply = 0
 
